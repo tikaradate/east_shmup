@@ -3,12 +3,48 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
+#include <vector>
+
+
+static const bool enableValidationLayers = true;
+
+static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
 static void glfw_error_callback(int error, const char *description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
+bool checkValidationLayerSupport(){
+    uint32_t layerCount = 0;
+    VkResult result = vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    std::vector<VkLayerProperties> availableLayers(layerCount);
+
+    result = vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    for(const VkLayerProperties &layer : availableLayers){
+        if(std::strcmp(layer.layerName, validationLayers[0]) == 0){
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool createInstance(VkInstance *instance) {
+    if(enableValidationLayers && !checkValidationLayerSupport()){
+        std::fprintf(stderr, "Validation layers requested, but not available\n");
+        return false;
+    }
+    
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "East Shmup";
@@ -30,7 +66,14 @@ bool createInstance(VkInstance *instance) {
     createInfo.pApplicationInfo = &appInfo;
     createInfo.enabledExtensionCount = extensionCount;
     createInfo.ppEnabledExtensionNames = extensions;
-    createInfo.enabledLayerCount = 0;
+
+    if(enableValidationLayers){
+        createInfo.enabledLayerCount = 1;
+        createInfo.ppEnabledLayerNames = validationLayers;
+    } else {
+        createInfo.enabledLayerCount = 0;
+        createInfo.ppEnabledLayerNames = nullptr;
+    }
 
     VkResult result = vkCreateInstance(&createInfo, nullptr, instance);
 
