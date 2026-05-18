@@ -11,7 +11,7 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
-static void glfw_error_callback(int error, const char *description) {
+static void glfw_error_callback(int error, const char *description){
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
@@ -39,6 +39,79 @@ bool checkValidationLayerSupport(){
     return false;
 }
 
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+    void *pUserData
+){
+    std::fprintf(stderr, "%s\n", pCallbackData->pMessage);
+    return VK_FALSE;
+}
+
+static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT *createInfo){
+    createInfo->sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    createInfo->messageSeverity = 
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    createInfo->messageType = 
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    createInfo->pfnUserCallback = debugCallback;
+    createInfo->pUserData = nullptr;
+}
+
+static bool setupDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT *debugMessenger){
+    if(!enableValidationLayers) {
+        return true;
+    }
+
+    VkDebugUtilsMessengerCreateInfoEXT createInfo{};
+    populateDebugMessengerCreateInfo(&createInfo);
+
+    PFN_vkCreateDebugUtilsMessengerEXT func = 
+        reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT")
+        );
+
+    if(func == nullptr){
+        std::fprintf(stderr, "Failed to load vkCreateDebugUtilsMessengerEXT\n");
+        return false;
+    }
+
+    VkResult result = func(instance, &createInfo, nullptr, debugMessenger);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to create debug messenger: VkResult %d\n", result);
+        return false;
+    }
+
+    return true;
+}
+
+static void destroyDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT *debugMessenger){
+    if(!enableValidationLayers) {
+        return;
+    }
+
+    if(debugMessenger == VK_NULL_HANDLE){
+        return;
+    }
+
+    PFN_vkDestroyDebugUtilsMessengerEXT func = 
+        reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")
+        );
+
+    if(func == nullptr){
+        std::fprintf(stderr, "Failed to load vkDestroyDebugUtilsMessengerEXT\n");
+        return;
+    } else {
+        func(instance, *debugMessenger, nullptr);
+    }
+}
+
 bool createInstance(VkInstance *instance) {
     if(enableValidationLayers && !checkValidationLayerSupport()){
         std::fprintf(stderr, "Validation layers requested, but not available\n");
@@ -61,11 +134,19 @@ bool createInstance(VkInstance *instance) {
         return false;
     }
 
+    std::vector<const char*> enabledExtensions;
+    for(uint32_t i = 0; i < extensionCount; i++){
+        enabledExtensions.push_back(extensions[i]);
+    }
+    if(enableValidationLayers){
+        enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = extensionCount;
-    createInfo.ppEnabledExtensionNames = extensions;
+    createInfo.enabledExtensionCount = enabledExtensions.size();
+    createInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
     if(enableValidationLayers){
         createInfo.enabledLayerCount = 1;
@@ -120,6 +201,9 @@ int main() {
 
     std::fprintf(stdout, "Vulkan instance created\n");
 
+    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+    setupDebugMessenger(instance, &debugMessenger);
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -128,6 +212,7 @@ int main() {
         }
     }
 
+    destroyDebugMessenger(instance, &debugMessenger);
     vkDestroyInstance(instance, nullptr);
     std::fprintf(stdout, "Vulkan instance destroyed\n");
 
