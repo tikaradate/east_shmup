@@ -1,15 +1,14 @@
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <vulkan/vulkan.h>
 
 #include <cstdlib>
-#include <iostream>
-#include <stdexcept>
+#include <cstdio>
 
-static void glfw_error_callback(int error, const char *description){
-    std::cerr << "GLFW error " << error << ": " << description << '\n';
+static void glfw_error_callback(int error, const char *description) {
+    std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
-VkInstance createInstance() {
+bool createInstance(VkInstance *instance) {
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "East Shmup";
@@ -21,8 +20,9 @@ VkInstance createInstance() {
     uint32_t extensionCount = 0;
     const char **extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
 
-    if(extensions == nullptr || extensionCount == 0){
-        throw std::runtime_error("GLFW did not return required Vulkan extensions");
+    if (extensions == nullptr || extensionCount == 0) {
+        std::fprintf(stderr, "GLFW did not return required Vulkan extensions\n");
+        return false;
     }
 
     VkInstanceCreateInfo createInfo{};
@@ -32,29 +32,28 @@ VkInstance createInstance() {
     createInfo.ppEnabledExtensionNames = extensions;
     createInfo.enabledLayerCount = 0;
 
-    VkInstance instance = VK_NULL_HANDLE;
+    VkResult result = vkCreateInstance(&createInfo, nullptr, instance);
 
-    VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
-
-    if(result != VK_SUCCESS){
-        throw std::runtime_error("Failed to create Vulkan instance");
+    if (result != VK_SUCCESS) {
+        std::fprintf(stderr, "Failed to create Vulkan instance: VkResult %d\n", result);
+        return false;
     }
 
-    return instance;
+    return true;
 }
 
-int main(){
+int main() {
     glfwSetErrorCallback(glfw_error_callback);
 
-    if(!glfwInit()){
-        std::cerr << "Failed to initialized GLFW\n";
+    if (!glfwInit()) {
+        std::fprintf(stderr, "Failed to initialize GLFW\n");
         return EXIT_FAILURE;
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(
+    GLFWwindow *window = glfwCreateWindow(
         1280,
         720,
         "East Shmup",
@@ -62,26 +61,34 @@ int main(){
         nullptr
     );
 
-    if(!window){
-        std::cerr << "Failed to create GLFW window\n";
+    if (!window) {
+        std::fprintf(stderr, "Failed to create GLFW window\n");
         glfwTerminate();
         return EXIT_FAILURE;
     }
 
-    VkInstance instance = createInstance();
-    std::cout << "Vulkan instance created\n";
+    VkInstance instance = VK_NULL_HANDLE;
 
-    while(!glfwWindowShouldClose(window)){
+    if (!createInstance(&instance)) {
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return EXIT_FAILURE;
+    }
+
+    std::fprintf(stdout, "Vulkan instance created\n");
+
+    while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS){
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
 
-    glfwDestroyWindow(window);
     vkDestroyInstance(instance, nullptr);
-    
+    std::fprintf(stdout, "Vulkan instance destroyed\n");
+
+    glfwDestroyWindow(window);
     glfwTerminate();
 
     return EXIT_SUCCESS;
