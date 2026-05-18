@@ -7,13 +7,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(glfw3 REQUIRED)
+find_package(Vulkan REQUIRED)
 
 add_executable(shmup
     src/main.cpp
 )
 
 target_link_libraries(shmup
-    PRIVATE glfw
+    PRIVATE 
+        glfw
+        Vulkan::Vulkan
 )
 
 target_compile_options(shmup PRIVATE
