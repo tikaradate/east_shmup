@@ -204,6 +204,22 @@ int main() {
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     setupDebugMessenger(instance, &debugMessenger);
 
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+
+    VkResult surfaceResult = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+
+    if(surfaceResult != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to create window surface: VkResult %d\n", surfaceResult);
+
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -212,6 +228,7 @@ int main() {
         }
     }
 
+    vkDestroySurfaceKHR(instance, surface, nullptr);
     destroyDebugMessenger(instance, &debugMessenger);
     vkDestroyInstance(instance, nullptr);
     std::fprintf(stdout, "Vulkan instance destroyed\n");
