@@ -20,5 +20,5 @@ target_link_libraries(shmup
 )
 
 target_compile_options(shmup PRIVATE
-    -Wall -Wextra -Wpedantic
+    -Wall -Wextra -Wpedantic -g
 )

@@ -18,10 +18,153 @@ struct QueueFamilyIndices{
     }
 };
 
+struct SwapchainSupportDetails{
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
+};
+
+static const char* requiredDeviceExtensions[] = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
+
+static const uint32_t requiredDeviceExtensionCount =
+    sizeof(requiredDeviceExtensions) / sizeof(requiredDeviceExtensions[0]);
+
 static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool querySwapchainSupport(VkPhysicalDevice device, VkSurfaceKHR surface, SwapchainSupportDetails *details){
+    VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details->capabilities);
+
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    uint32_t formatCount = 0;
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    details->formats.resize(formatCount);
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details->formats.data());    
+    
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    uint32_t presentModeCount = 0;
+    result = vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    details->presentModes.resize(presentModeCount);
+    result = vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details->presentModes.data());
+
+    if(result != VK_SUCCESS){
+        return false;
+    }
+
+    return true;
+}
+
+static bool checkDeviceExtensionSupport(VkPhysicalDevice device){
+    uint32_t extensionCount = 0;
+
+    vkEnumerateDeviceExtensionProperties(
+        device,
+        nullptr,
+        &extensionCount,
+        nullptr
+    );
+
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+
+    vkEnumerateDeviceExtensionProperties(
+        device,
+        nullptr,
+        &extensionCount,
+        availableExtensions.data()
+    );
+
+    for(uint32_t i = 0; i < requiredDeviceExtensionCount; i++){
+        bool found = false;
+
+        for(uint32_t j = 0; j < extensionCount; j++){
+            if(std::strcmp(
+                requiredDeviceExtensions[i],
+                availableExtensions[j].extensionName
+            ) == 0){
+                found = true;
+                break;
+            }
+        }
+
+        if(!found){
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool createLogicalDevice(VkPhysicalDevice physicalDevice, QueueFamilyIndices queueFamilyIndices, VkDevice *device, VkQueue *graphicsQueue, VkQueue *presentQueue){
+    float queuePriority = 1.0f;
+    
+    VkDeviceQueueCreateInfo queueCreateInfos[2] = {};
+    uint32_t queueCreateInfoCount = 0;
+
+    queueCreateInfos[queueCreateInfoCount].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfos[queueCreateInfoCount].queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+    queueCreateInfos[queueCreateInfoCount].queueCount = 1;
+    queueCreateInfos[queueCreateInfoCount].pQueuePriorities = &queuePriority;
+
+    queueCreateInfoCount++;
+
+    if(queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily){
+        queueCreateInfos[queueCreateInfoCount].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfos[queueCreateInfoCount].queueFamilyIndex = queueFamilyIndices.presentFamily;
+        queueCreateInfos[queueCreateInfoCount].queueCount = 1;
+        queueCreateInfos[queueCreateInfoCount].pQueuePriorities = &queuePriority;
+
+        queueCreateInfoCount++;
+    }
+    
+    VkPhysicalDeviceFeatures deviceFeatures = {};
+    
+    VkDeviceCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    createInfo.queueCreateInfoCount = queueCreateInfoCount;
+    createInfo.pQueueCreateInfos = queueCreateInfos;
+    createInfo.pEnabledFeatures = &deviceFeatures;
+    createInfo.enabledExtensionCount = requiredDeviceExtensionCount;
+    createInfo.ppEnabledExtensionNames = requiredDeviceExtensions;
+    createInfo.enabledLayerCount = 0;
+    createInfo.ppEnabledLayerNames = nullptr;
+    
+    VkResult result = vkCreateDevice(physicalDevice, &createInfo, nullptr, device);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to create logical device\n");
+        return false;
+    }
+        std::fprintf(stdout, "created logical device\n");
+
+    vkGetDeviceQueue(*device, queueFamilyIndices.graphicsFamily, 0, graphicsQueue);
+
+    if(queueFamilyIndices.presentFamily == queueFamilyIndices.graphicsFamily){
+        *presentQueue = *graphicsQueue;
+    } else {
+        vkGetDeviceQueue(*device, queueFamilyIndices.presentFamily, 0, presentQueue);
+    }
+
+    return true;
+}
 
 static QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface){
     QueueFamilyIndices indices;
@@ -53,9 +196,23 @@ static QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKH
 
     return indices;
 }
+
 static bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface){
     QueueFamilyIndices indices = findQueueFamilies(device, surface);
-    return indices.isComplete();
+    
+    bool extensionsSupported = checkDeviceExtensionSupport(device);
+
+    bool swapchainAdequate = false;
+    if(extensionsSupported){
+        SwapchainSupportDetails swapchainSupport;
+        if(querySwapchainSupport(device, surface, &swapchainSupport)){
+            swapchainAdequate =
+                !swapchainSupport.formats.empty()
+                && !swapchainSupport.presentModes.empty();
+        }
+    }
+
+    return indices.isComplete() && extensionsSupported && swapchainAdequate;
 }
 
 static bool pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface, VkPhysicalDevice *device, QueueFamilyIndices *queueFamilyIndices){
@@ -325,6 +482,25 @@ int main() {
     std::fprintf(stdout, "graphics family: %d\n", queueFamilyIndices.graphicsFamily);
     std::fprintf(stdout, "present family: %d\n", queueFamilyIndices.presentFamily);
 
+
+    VkDevice device = VK_NULL_HANDLE;
+    VkQueue graphicsQueue = VK_NULL_HANDLE;
+    VkQueue presentQueue = VK_NULL_HANDLE;
+
+    if(!createLogicalDevice(physicalDevice, queueFamilyIndices, &device, &graphicsQueue, &presentQueue)){
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
+    std::fprintf(stdout, "Vulkan logical device created\n");
+
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -332,6 +508,9 @@ int main() {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
+
+    vkDestroyDevice(device, nullptr);
+    std::fprintf(stdout, "Device destroyed\n");
 
     vkDestroySurfaceKHR(instance, surface, nullptr);
     std::fprintf(stdout, "Surface destroyed\n");
