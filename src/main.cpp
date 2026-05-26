@@ -154,7 +154,6 @@ static bool querySwapchainSupport(VkPhysicalDevice device, VkSurfaceKHR surface,
     return true;
 }
 
-
 static bool createSwapchain(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, GLFWwindow *window, QueueFamilyIndices queueFamilyIndices, VkSwapchainKHR *swapchain, std::vector<VkImage> *swapchainImages, VkFormat *swapchainImageFormat, VkExtent2D *swapchainExtent){
     SwapchainSupportDetails swapchainSupport = {};
 
@@ -685,6 +684,17 @@ int main() {
     std::fprintf(stdout, "swapchain image count: %zu\n", swapchainImages.size());
     
     std::vector<VkImageView> swapchainImageViews;
+    if(!createSwapchainImageViews(device, swapchainImages, swapchainImageFormat, &swapchainImageViews)){
+        vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;        
+    }
     
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
