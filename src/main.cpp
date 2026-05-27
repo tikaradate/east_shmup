@@ -36,6 +36,29 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool createCommandPool(VkDevice device, QueueFamilyIndices queueFamilyIndices, VkCommandPool *commandPool){
+    VkCommandPoolCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+
+    createInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+
+    createInfo.flags = 0;
+
+    VkResult result = vkCreateCommandPool(
+        device,
+        &createInfo,
+        nullptr,
+        commandPool
+    );
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "failed to create command pool\n");
+        return false;
+    }
+
+    return true;
+}
+
 static bool createGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, VkRenderPass renderPass, VkShaderModule vertShaderModule, VkShaderModule fragShaderModule, VkPipelineLayout *pipelineLayout, VkPipeline *graphicsPipeline){
     VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1174,6 +1197,36 @@ int main() {
     vkDestroyShaderModule(device, vertShaderModule, nullptr);
     std::fprintf(stdout, "Shader modules destroyed\n");
 
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+
+    if(!createCommandPool(device, queueFamilyIndices, &commandPool)){
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
+        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
+            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
+        }
+
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        for(size_t i = 0; i < swapchainImageViews.size(); i++){
+            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+        }
+
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
+    std::fprintf(stdout, "Command pool created\n");
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -1181,6 +1234,9 @@ int main() {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
+
+    vkDestroyCommandPool(device, commandPool, nullptr);
+    std::fprintf(stdout, "Command pool destroyed\n");
 
     vkDestroyPipeline(device, graphicsPipeline, nullptr);
     std::fprintf(stdout, "Graphics pipeline destroyed\n");
