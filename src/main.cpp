@@ -932,17 +932,53 @@ bool createInstance(VkInstance *instance) {
 }
 
 int main() {
+    int exitCode = EXIT_FAILURE;
+    bool glfwInitialized = false;
+
+    GLFWwindow *window = nullptr;
+
+    VkInstance instance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    QueueFamilyIndices queueFamilyIndices;
+
+    VkDevice device = VK_NULL_HANDLE;
+    VkQueue graphicsQueue = VK_NULL_HANDLE;
+    VkQueue presentQueue = VK_NULL_HANDLE;
+
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    std::vector<VkImage> swapchainImages;
+    VkFormat swapchainImageFormat = VK_FORMAT_UNDEFINED;
+    VkExtent2D swapchainExtent = {};
+
+    std::vector<VkImageView> swapchainImageViews;
+
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer> swapchainFramebuffers;
+
+    VkShaderModule vertShaderModule = VK_NULL_HANDLE;
+    VkShaderModule fragShaderModule = VK_NULL_HANDLE;
+
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+
     glfwSetErrorCallback(glfw_error_callback);
 
-    if (!glfwInit()) {
+    if(!glfwInit()){
         std::fprintf(stderr, "Failed to initialize GLFW\n");
-        return EXIT_FAILURE;
+        goto cleanup;
     }
+
+    glfwInitialized = true;
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-    GLFWwindow *window = glfwCreateWindow(
+    window = glfwCreateWindow(
         1280,
         720,
         "East Shmup",
@@ -950,212 +986,104 @@ int main() {
         nullptr
     );
 
-    if (!window) {
+    if(window == nullptr){
         std::fprintf(stderr, "Failed to create GLFW window\n");
-        glfwTerminate();
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
-    VkInstance instance = VK_NULL_HANDLE;
-
-    if (!createInstance(&instance)) {
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return EXIT_FAILURE;
+    if(!createInstance(&instance)){
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Vulkan instance created\n");
 
-    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
-    setupDebugMessenger(instance, &debugMessenger);
+    if(!setupDebugMessenger(instance, &debugMessenger)){
+        goto cleanup;
+    }
 
     std::fprintf(stdout, "DebugMessenger created\n");
 
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    
     if(!createSurface(instance, window, &surface)){
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Surface created\n");
 
-    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-    QueueFamilyIndices queueFamilyIndices;
-
     if(!pickPhysicalDevice(instance, surface, &physicalDevice, &queueFamilyIndices)){
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Vulkan physical device selected\n");
     std::fprintf(stdout, "graphics family: %d\n", queueFamilyIndices.graphicsFamily);
     std::fprintf(stdout, "present family: %d\n", queueFamilyIndices.presentFamily);
 
-
-    VkDevice device = VK_NULL_HANDLE;
-    VkQueue graphicsQueue = VK_NULL_HANDLE;
-    VkQueue presentQueue = VK_NULL_HANDLE;
-
-    if(!createLogicalDevice(physicalDevice, queueFamilyIndices, &device, &graphicsQueue, &presentQueue)){
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+    if(!createLogicalDevice(
+        physicalDevice,
+        queueFamilyIndices,
+        &device,
+        &graphicsQueue,
+        &presentQueue
+    )){
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Vulkan logical device created\n");
 
-    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    std::vector<VkImage> swapchainImages;
-    VkFormat swapchainImageFormat;
-    VkExtent2D swapchainExtent;
-
-    if(!createSwapchain(physicalDevice, device, surface, window, queueFamilyIndices, &swapchain, &swapchainImages, &swapchainImageFormat, &swapchainExtent)){
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+    if(!createSwapchain(
+        physicalDevice,
+        device,
+        surface,
+        window,
+        queueFamilyIndices,
+        &swapchain,
+        &swapchainImages,
+        &swapchainImageFormat,
+        &swapchainExtent
+    )){
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Swapchain created\n");
     std::fprintf(stdout, "swapchain image count: %zu\n", swapchainImages.size());
-    
-    std::vector<VkImageView> swapchainImageViews;
-    if(!createSwapchainImageViews(device, swapchainImages, swapchainImageFormat, &swapchainImageViews)){
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
 
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;        
+    if(!createSwapchainImageViews(
+        device,
+        swapchainImages,
+        swapchainImageFormat,
+        &swapchainImageViews
+    )){
+        goto cleanup;
     }
-    
+
     std::fprintf(stdout, "Swapchain image views created\n");
 
-    VkRenderPass renderPass = VK_NULL_HANDLE;
-
     if(!createRenderPass(device, swapchainImageFormat, &renderPass)){
-        for(size_t i = 0; i < swapchainImageViews.size(); i++){
-            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Render pass created\n");
 
-    std::vector<VkFramebuffer> swapchainFramebuffers;
-
-    if(!createFramebuffers(device, renderPass, swapchainImageViews, swapchainExtent, &swapchainFramebuffers)){
-        vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for(size_t i = 0; i < swapchainImageViews.size(); i++){
-            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+    if(!createFramebuffers(
+        device,
+        renderPass,
+        swapchainImageViews,
+        swapchainExtent,
+        &swapchainFramebuffers
+    )){
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Framebuffers created\n");
 
-    VkShaderModule vertShaderModule = VK_NULL_HANDLE;
-    VkShaderModule fragShaderModule = VK_NULL_HANDLE;
-
     if(!createShaderModule(device, "src/shaders/triangle.vert.spv", &vertShaderModule)){
-        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
-            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
-        }
-
-        vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for(size_t i = 0; i < swapchainImageViews.size(); i++){
-            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     if(!createShaderModule(device, "src/shaders/triangle.frag.spv", &fragShaderModule)){
-        vkDestroyShaderModule(device, vertShaderModule, nullptr);
-
-        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
-            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
-        }
-
-        vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for(size_t i = 0; i < swapchainImageViews.size(); i++){
-            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Shader modules created\n");
-
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 
     if(!createGraphicsPipeline(
         device,
@@ -1166,115 +1094,112 @@ int main() {
         &pipelineLayout,
         &graphicsPipeline
     )){
-        vkDestroyShaderModule(device, fragShaderModule, nullptr);
-        vkDestroyShaderModule(device, vertShaderModule, nullptr);
-
-        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
-            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
-        }
-
-        vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for(size_t i = 0; i < swapchainImageViews.size(); i++){
-            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Graphics pipeline created\n");
 
     vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    fragShaderModule = VK_NULL_HANDLE;
+
     vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    vertShaderModule = VK_NULL_HANDLE;
+
     std::fprintf(stdout, "Shader modules destroyed\n");
 
-    VkCommandPool commandPool = VK_NULL_HANDLE;
-
     if(!createCommandPool(device, queueFamilyIndices, &commandPool)){
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-
-        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
-            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
-        }
-
-        vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for(size_t i = 0; i < swapchainImageViews.size(); i++){
-            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-        }
-
-        vkDestroySwapchainKHR(device, swapchain, nullptr);
-        vkDestroyDevice(device, nullptr);
-        vkDestroySurfaceKHR(instance, surface, nullptr);
-        destroyDebugMessenger(instance, &debugMessenger);
-        vkDestroyInstance(instance, nullptr);
-
-        glfwDestroyWindow(window);
-        glfwTerminate();
-
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     std::fprintf(stdout, "Command pool created\n");
 
-    while (!glfwWindowShouldClose(window)) {
+    while(!glfwWindowShouldClose(window)){
         glfwPollEvents();
 
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS){
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
 
-    vkDestroyCommandPool(device, commandPool, nullptr);
-    std::fprintf(stdout, "Command pool destroyed\n");
+    exitCode = EXIT_SUCCESS;
 
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
-    std::fprintf(stdout, "Graphics pipeline destroyed\n");
+cleanup:
+    if(commandPool != VK_NULL_HANDLE){
+        vkDestroyCommandPool(device, commandPool, nullptr);
+        std::fprintf(stdout, "Command pool destroyed\n");
+    }
 
-    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-    std::fprintf(stdout, "Pipeline layout destroyed\n");
+    if(graphicsPipeline != VK_NULL_HANDLE){
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        std::fprintf(stdout, "Graphics pipeline destroyed\n");
+    }
+
+    if(pipelineLayout != VK_NULL_HANDLE){
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        std::fprintf(stdout, "Pipeline layout destroyed\n");
+    }
+
+    if(fragShaderModule != VK_NULL_HANDLE){
+        vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    }
+
+    if(vertShaderModule != VK_NULL_HANDLE){
+        vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    }
 
     for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
         vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
     }
 
-    std::fprintf(stdout, "Framebuffers destroyed\n");
+    if(!swapchainFramebuffers.empty()){
+        std::fprintf(stdout, "Framebuffers destroyed\n");
+    }
 
-    vkDestroyRenderPass(device, renderPass, nullptr);
-    std::fprintf(stdout, "Render pass destroyed\n");
+    if(renderPass != VK_NULL_HANDLE){
+        vkDestroyRenderPass(device, renderPass, nullptr);
+        std::fprintf(stdout, "Render pass destroyed\n");
+    }
 
     for(size_t i = 0; i < swapchainImageViews.size(); i++){
-       vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+        vkDestroyImageView(device, swapchainImageViews[i], nullptr);
     }
-    std::fprintf(stdout, "Swapchain image views destroyed\n");
 
-    vkDestroySwapchainKHR(device, swapchain, nullptr);
-    std::fprintf(stdout, "Swapchain destroyed\n");
+    if(!swapchainImageViews.empty()){
+        std::fprintf(stdout, "Swapchain image views destroyed\n");
+    }
 
-    vkDestroyDevice(device, nullptr);
-    std::fprintf(stdout, "Device destroyed\n");
+    if(swapchain != VK_NULL_HANDLE){
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        std::fprintf(stdout, "Swapchain destroyed\n");
+    }
 
-    vkDestroySurfaceKHR(instance, surface, nullptr);
-    std::fprintf(stdout, "Surface destroyed\n");
-    
-    destroyDebugMessenger(instance, &debugMessenger);
-    std::fprintf(stdout, "DebugMessenger destroyed\n");
-    
-    vkDestroyInstance(instance, nullptr);
-    std::fprintf(stdout, "Vulkan instance destroyed\n");
+    if(device != VK_NULL_HANDLE){
+        vkDestroyDevice(device, nullptr);
+        std::fprintf(stdout, "Device destroyed\n");
+    }
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    if(surface != VK_NULL_HANDLE){
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        std::fprintf(stdout, "Surface destroyed\n");
+    }
 
-    return EXIT_SUCCESS;
+    if(debugMessenger != VK_NULL_HANDLE){
+        destroyDebugMessenger(instance, &debugMessenger);
+        std::fprintf(stdout, "DebugMessenger destroyed\n");
+    }
+
+    if(instance != VK_NULL_HANDLE){
+        vkDestroyInstance(instance, nullptr);
+        std::fprintf(stdout, "Vulkan instance destroyed\n");
+    }
+
+    if(window != nullptr){
+        glfwDestroyWindow(window);
+    }
+
+    if(glfwInitialized){
+        glfwTerminate();
+    }
+
+    return exitCode;
 }
