@@ -36,6 +36,81 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool readBinaryFile(const char *path, std::vector<char> *buffer){
+    FILE *file = std::fopen(path, "rb");
+
+    if(file == nullptr){
+        std::fprintf(stderr, "failed to open file: %s\n", path);
+        return false;
+    }
+
+    if(std::fseek(file, 0, SEEK_END) != 0){
+        std::fprintf(stderr, "failed to seek file: %s\n", path);
+        std::fclose(file);
+        return false;
+    }
+
+    long fileSize = std::ftell(file);
+
+    if(fileSize < 0){
+        std::fprintf(stderr, "failed to get file size: %s\n", path);
+        std::fclose(file);
+        return false;
+    }
+
+    std::rewind(file);
+
+    buffer->resize(static_cast<size_t>(fileSize));
+
+    size_t bytesRead = std::fread(
+        buffer->data(),
+        1,
+        buffer->size(),
+        file
+    );
+
+    std::fclose(file);
+
+    if(bytesRead != buffer->size()){
+        std::fprintf(stderr, "failed to read full file: %s\n", path);
+        return false;
+    }
+
+    return true;
+}
+
+static bool createShaderModule(VkDevice device, const char *path, VkShaderModule *shaderModule){
+    std::vector<char> code;
+
+    if(!readBinaryFile(path, &code)){
+        return false;
+    }
+
+    if(code.empty() || code.size() % 4 != 0){
+        std::fprintf(stderr, "invalid SPIR-V file: %s\n", path);
+        return false;
+    }
+
+    VkShaderModuleCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = code.size();
+    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+    VkResult result = vkCreateShaderModule(
+        device,
+        &createInfo,
+        nullptr,
+        shaderModule
+    );
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "failed to create shader module: %s\n", path);
+        return false;
+    }
+
+    return true;
+}
+
 static bool createFramebuffers(VkDevice device, VkRenderPass renderPass, const std::vector<VkImageView> &swapchainImageViews, VkExtent2D swapchainExtent, std::vector<VkFramebuffer> *swapchainFramebuffers){
     swapchainFramebuffers->resize(swapchainImageViews.size());
 
@@ -844,6 +919,59 @@ int main() {
 
     std::fprintf(stdout, "Framebuffers created\n");
 
+    VkShaderModule vertShaderModule = VK_NULL_HANDLE;
+    VkShaderModule fragShaderModule = VK_NULL_HANDLE;
+
+    if(!createShaderModule(device, "src/shaders/triangle.vert.spv", &vertShaderModule)){
+        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
+            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
+        }
+
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        for(size_t i = 0; i < swapchainImageViews.size(); i++){
+            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+        }
+
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
+    if(!createShaderModule(device, "src/shaders/triangle.frag.spv", &fragShaderModule)){
+        vkDestroyShaderModule(device, vertShaderModule, nullptr);
+
+        for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
+            vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
+        }
+
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        for(size_t i = 0; i < swapchainImageViews.size(); i++){
+            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+        }
+
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
+    std::fprintf(stdout, "Shader modules created\n");
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -851,6 +979,10 @@ int main() {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
+
+    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    std::fprintf(stdout, "Shader modules destroyed\n");
 
     for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
         vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
