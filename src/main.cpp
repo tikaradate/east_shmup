@@ -36,6 +36,61 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool createRenderPass(VkDevice device, VkFormat swapchainImageFormat, VkRenderPass *renderPass){
+    VkAttachmentDescription colorAttachment = {};
+    colorAttachment.format = swapchainImageFormat;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentRef = {};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    VkSubpassDependency dependency = {};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+
+    createInfo.attachmentCount = 1;
+    createInfo.pAttachments = &colorAttachment;
+
+    createInfo.subpassCount = 1;
+    createInfo.pSubpasses = &subpass;
+
+    createInfo.dependencyCount = 1;
+    createInfo.pDependencies = &dependency;
+
+    VkResult result = vkCreateRenderPass(device, &createInfo, nullptr, renderPass);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "failed to create render pass\n");
+        return false;
+    }
+
+    return true;
+}
+
 static bool createSwapchainImageViews(VkDevice device, const std::vector<VkImage> &swapchainImages, VkFormat swapchainImageFormat, std::vector<VkImageView> *swapchainImageViews){
     swapchainImageViews->resize(swapchainImages.size());
 
@@ -706,6 +761,27 @@ int main() {
     
     std::fprintf(stdout, "Swapchain image views created\n");
 
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+
+    if(!createRenderPass(device, swapchainImageFormat, &renderPass)){
+        for(size_t i = 0; i < swapchainImageViews.size(); i++){
+            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+        }
+
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
+    std::fprintf(stdout, "Render pass created\n");
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -714,9 +790,13 @@ int main() {
         }
     }
 
+    vkDestroyRenderPass(device, renderPass, nullptr);
+    std::fprintf(stdout, "Render pass destroyed\n");
+
     for(size_t i = 0; i < swapchainImageViews.size(); i++){
        vkDestroyImageView(device, swapchainImageViews[i], nullptr);
     }
+    std::fprintf(stdout, "Swapchain image views destroyed\n");
 
     vkDestroySwapchainKHR(device, swapchain, nullptr);
     std::fprintf(stdout, "Swapchain destroyed\n");
