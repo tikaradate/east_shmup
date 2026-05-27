@@ -36,6 +36,45 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool createFramebuffers(VkDevice device, VkRenderPass renderPass, const std::vector<VkImageView> &swapchainImageViews, VkExtent2D swapchainExtent, std::vector<VkFramebuffer> *swapchainFramebuffers){
+    swapchainFramebuffers->resize(swapchainImageViews.size());
+
+    for(size_t i = 0; i < swapchainImageViews.size(); i++){
+        VkImageView attachments[] = {
+            swapchainImageViews[i]
+        };
+
+        VkFramebufferCreateInfo createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        createInfo.renderPass = renderPass;
+        createInfo.attachmentCount = 1;
+        createInfo.pAttachments = attachments;
+        createInfo.width = swapchainExtent.width;
+        createInfo.height = swapchainExtent.height;
+        createInfo.layers = 1;
+
+        VkResult result = vkCreateFramebuffer(
+            device,
+            &createInfo,
+            nullptr,
+            &(*swapchainFramebuffers)[i]
+        );
+
+        if(result != VK_SUCCESS){
+            std::fprintf(stderr, "failed to create framebuffer\n");
+
+            for(size_t j = 0; j < i; j++){
+                vkDestroyFramebuffer(device, (*swapchainFramebuffers)[j], nullptr);
+            }
+
+            swapchainFramebuffers->clear();
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool createRenderPass(VkDevice device, VkFormat swapchainImageFormat, VkRenderPass *renderPass){
     VkAttachmentDescription colorAttachment = {};
     colorAttachment.format = swapchainImageFormat;
@@ -782,6 +821,29 @@ int main() {
 
     std::fprintf(stdout, "Render pass created\n");
 
+    std::vector<VkFramebuffer> swapchainFramebuffers;
+
+    if(!createFramebuffers(device, renderPass, swapchainImageViews, swapchainExtent, &swapchainFramebuffers)){
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        for(size_t i = 0; i < swapchainImageViews.size(); i++){
+            vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+        }
+
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        vkDestroyDevice(device, nullptr);
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        destroyDebugMessenger(instance, &debugMessenger);
+        vkDestroyInstance(instance, nullptr);
+
+        glfwDestroyWindow(window);
+        glfwTerminate();
+
+        return EXIT_FAILURE;
+    }
+
+    std::fprintf(stdout, "Framebuffers created\n");
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -789,6 +851,12 @@ int main() {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
     }
+
+    for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
+        vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
+    }
+
+    std::fprintf(stdout, "Framebuffers destroyed\n");
 
     vkDestroyRenderPass(device, renderPass, nullptr);
     std::fprintf(stdout, "Render pass destroyed\n");
