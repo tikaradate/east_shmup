@@ -61,6 +61,13 @@ static bool createSwapchainImageViews(VkDevice device, const std::vector<VkImage
 
         if(result != VK_SUCCESS){
             std::fprintf(stderr, "failed to create swapchain image view\n");
+            
+            for(uint32_t j = 0; j < i; j++){
+                vkDestroyImageView(device, (*swapchainImageViews)[j], nullptr);
+            }
+
+            swapchainImageViews->clear();
+
             return false;
         }
     }
@@ -502,7 +509,7 @@ static void destroyDebugMessenger(VkInstance instance, VkDebugUtilsMessengerEXT 
         return;
     }
 
-    if(debugMessenger == VK_NULL_HANDLE){
+    if(*debugMessenger == VK_NULL_HANDLE){
         return;
     }
 
@@ -685,6 +692,7 @@ int main() {
     
     std::vector<VkImageView> swapchainImageViews;
     if(!createSwapchainImageViews(device, swapchainImages, swapchainImageFormat, &swapchainImageViews)){
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
         vkDestroyDevice(device, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);
         destroyDebugMessenger(instance, &debugMessenger);
@@ -696,6 +704,8 @@ int main() {
         return EXIT_FAILURE;        
     }
     
+    std::fprintf(stdout, "Swapchain image views created\n");
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
