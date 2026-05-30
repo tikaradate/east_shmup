@@ -36,6 +36,82 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkRenderPass renderPass, const std::vector<VkFramebuffer> &swapchainFramebuffers, VkExtent2D swapchainExtent, VkPipeline graphicsPipeline, std::vector<VkCommandBuffer> *commandBuffers){
+    commandBuffers->resize(swapchainFramebuffers.size());
+
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers->size());
+
+    VkResult result = vkAllocateCommandBuffers(
+        device,
+        &allocInfo,
+        commandBuffers->data()
+    );
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "failed to allocate command buffers\n");
+        commandBuffers->clear();
+        return false;
+    }
+
+    for(size_t i = 0; i < commandBuffers->size(); i++){
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+
+        result = vkBeginCommandBuffer((*commandBuffers)[i], &beginInfo);
+
+        if(result != VK_SUCCESS){
+            std::fprintf(stderr, "failed to begin command buffer\n");
+            return false;
+        }
+
+        VkClearValue clearColor = {};
+        clearColor.color.float32[0] = 0.0f;
+        clearColor.color.float32[1] = 0.0f;
+        clearColor.color.float32[2] = 0.0f;
+        clearColor.color.float32[3] = 1.0f;
+
+        VkRenderPassBeginInfo renderPassInfo = {};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = renderPass;
+        renderPassInfo.framebuffer = swapchainFramebuffers[i];
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = swapchainExtent;
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearColor;
+
+        vkCmdBeginRenderPass(
+            (*commandBuffers)[i],
+            &renderPassInfo,
+            VK_SUBPASS_CONTENTS_INLINE
+        );
+
+        vkCmdBindPipeline(
+            (*commandBuffers)[i],
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            graphicsPipeline
+        );
+
+        vkCmdDraw((*commandBuffers)[i], 3, 1, 0, 0);
+
+        vkCmdEndRenderPass((*commandBuffers)[i]);
+
+        result = vkEndCommandBuffer((*commandBuffers)[i]);
+
+        if(result != VK_SUCCESS){
+            std::fprintf(stderr, "failed to record command buffer\n");
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool createCommandPool(VkDevice device, QueueFamilyIndices queueFamilyIndices, VkCommandPool *commandPool){
     VkCommandPoolCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
