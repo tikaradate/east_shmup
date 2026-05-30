@@ -11,6 +11,12 @@ find_package(Vulkan REQUIRED)
 
 add_executable(shmup
     src/main.cpp
+    src/vulkan_app.cpp
+)
+
+target_include_directories(shmup 
+    PRIVATE 
+        src
 )
 
 target_link_libraries(shmup
