@@ -36,6 +36,97 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+static bool drawFrame(VkDevice device, VkSwapchainKHR swapchain, VkQueue graphicsQueue, VkQueue presentQueue, const std::vector<VkCommandBuffer> &commandBuffers, VkSemaphore imageAvailableSemaphore, VkSemaphore renderFinishedSemaphore, VkFence inFlightFence){
+    VkResult result = vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to wait for fences\n");
+        return false;
+    }
+
+    uint32_t imageIndex = 0;
+    result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to acquire next image\n");
+        return false;
+    }
+
+    result = vkResetFences(device, 1, &inFlightFence);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to reset fences\n");
+        return false;
+    }
+
+    VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    result = vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to submit queue\n");
+        return false;
+    }
+
+    VkSwapchainKHR swapchains[] = { swapchain };
+
+    VkPresentInfoKHR presentInfo = {};  
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchains;
+    presentInfo.pImageIndices = &imageIndex;
+
+    result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+    if(result != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to present queue\n");
+        return false;
+    }
+
+    return true;
+}
+
+
+static bool createSyncObjects(VkDevice device, VkSemaphore *imageAvailableSemaphore, VkSemaphore *renderFinishedSemaphore, VkFence *inFlightFence){
+    VkSemaphoreCreateInfo semaphoreInfo = {};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fenceInfo = {};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    if(vkCreateSemaphore(device, &semaphoreInfo, nullptr, imageAvailableSemaphore) != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to create image available semaphore\n");
+        return false;
+    }
+
+    if(vkCreateSemaphore(device, &semaphoreInfo, nullptr, renderFinishedSemaphore) != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to create render finished semaphore\n");
+        return false;
+    }
+
+    if(vkCreateFence(device, &fenceInfo, nullptr, inFlightFence) != VK_SUCCESS){
+        std::fprintf(stderr, "Failed to create in-flight fence\n");
+        return false;
+    }
+
+    return true;
+}
+
 static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkRenderPass renderPass, const std::vector<VkFramebuffer> &swapchainFramebuffers, VkExtent2D swapchainExtent, VkPipeline graphicsPipeline, std::vector<VkCommandBuffer> *commandBuffers){
     commandBuffers->resize(swapchainFramebuffers.size());
 
@@ -1031,8 +1122,10 @@ int main() {
 
     std::vector<VkImageView> swapchainImageViews;
 
+    std::vector<VkCommandBuffer> commandBuffers;
+    
     VkRenderPass renderPass = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> swapchainFramebuffers;
+    std::vector<VkFramebuffer> swapchainFrameBuffers;
 
     VkShaderModule vertShaderModule = VK_NULL_HANDLE;
     VkShaderModule fragShaderModule = VK_NULL_HANDLE;
@@ -1041,6 +1134,10 @@ int main() {
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 
     VkCommandPool commandPool = VK_NULL_HANDLE;
+
+    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
+    VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
+    VkFence inFlightFence = VK_NULL_HANDLE;
 
     glfwSetErrorCallback(glfw_error_callback);
 
@@ -1144,7 +1241,7 @@ int main() {
         renderPass,
         swapchainImageViews,
         swapchainExtent,
-        &swapchainFramebuffers
+        &swapchainFrameBuffers
     )){
         goto cleanup;
     }
@@ -1189,8 +1286,34 @@ int main() {
 
     std::fprintf(stdout, "Command pool created\n");
 
+    if(!createCommandBuffers(device, commandPool, renderPass, swapchainFrameBuffers, swapchainExtent, graphicsPipeline, &commandBuffers)){
+        goto cleanup;
+    }
+
+    std::fprintf(stdout, "Command buffers created\n");
+    
+    if(!createSyncObjects(device, &imageAvailableSemaphore, &renderFinishedSemaphore, &inFlightFence)){
+        goto cleanup;
+    }
+
+    std::fprintf(stdout, "Sync objects created\n");
+
     while(!glfwWindowShouldClose(window)){
         glfwPollEvents();
+
+         if(!drawFrame(
+            device,
+            swapchain,
+            graphicsQueue,
+            presentQueue,
+            commandBuffers,
+            imageAvailableSemaphore,
+            renderFinishedSemaphore,
+            inFlightFence
+        )){
+            std::fprintf(stderr, "Failed to draw frame\n");
+            goto cleanup;
+        }
 
         if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS){
             glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -1200,6 +1323,23 @@ int main() {
     exitCode = EXIT_SUCCESS;
 
 cleanup:
+
+    if(device != VK_NULL_HANDLE){
+        vkDeviceWaitIdle(device);
+    }
+
+    if(inFlightFence != VK_NULL_HANDLE){
+        vkDestroyFence(device, inFlightFence, nullptr);
+    }
+
+    if(renderFinishedSemaphore != VK_NULL_HANDLE){
+        vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+    }
+
+    if(imageAvailableSemaphore != VK_NULL_HANDLE){
+        vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+    }
+
     if(commandPool != VK_NULL_HANDLE){
         vkDestroyCommandPool(device, commandPool, nullptr);
         std::fprintf(stdout, "Command pool destroyed\n");
@@ -1223,11 +1363,11 @@ cleanup:
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
     }
 
-    for(size_t i = 0; i < swapchainFramebuffers.size(); i++){
-        vkDestroyFramebuffer(device, swapchainFramebuffers[i], nullptr);
+    for(size_t i = 0; i < swapchainFrameBuffers.size(); i++){
+        vkDestroyFramebuffer(device, swapchainFrameBuffers[i], nullptr);
     }
 
-    if(!swapchainFramebuffers.empty()){
+    if(!swapchainFrameBuffers.empty()){
         std::fprintf(stdout, "Framebuffers destroyed\n");
     }
 
