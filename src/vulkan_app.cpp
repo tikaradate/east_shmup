@@ -1,5 +1,6 @@
 #include "vulkan_app.h"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -16,6 +17,128 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+struct Vertex {
+    float pos[2];
+};
+
+static const Vertex vertices[] = {
+    {{ 0.0f, -0.5f}},
+    {{ 0.5f,  0.5f}},
+    {{-0.5f,  0.5f}},
+};
+
+static bool findMemoryType(
+    VkPhysicalDevice physicalDevice,
+    uint32_t typeFilter,
+    VkMemoryPropertyFlags properties,
+    uint32_t *memoryTypeIndex
+){
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+    for(uint32_t i = 0; i < memProperties.memoryTypeCount; i++){
+        if((typeFilter & (1 << i)) &&
+           (memProperties.memoryTypes[i].propertyFlags & properties) == properties){
+            *memoryTypeIndex = i;
+            return true;
+        }
+    }
+
+    fprintf(stderr, "failed to find suitable memory type\n");
+    return false;
+}
+
+static bool createBuffer(
+    VkPhysicalDevice physicalDevice,
+    VkDevice device,
+    VkDeviceSize size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties,
+    VkBuffer *buffer,
+    VkDeviceMemory *bufferMemory
+){
+    VkBufferCreateInfo bufferInfo = {};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if(vkCreateBuffer(device, &bufferInfo, nullptr, buffer) != VK_SUCCESS){
+        fprintf(stderr, "failed to create buffer\n");
+        return false;
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+    uint32_t memoryTypeIndex = 0;
+    if(!findMemoryType(
+        physicalDevice,
+        memRequirements.memoryTypeBits,
+        properties,
+        &memoryTypeIndex
+    )){
+        vkDestroyBuffer(device, *buffer, nullptr);
+        *buffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = memoryTypeIndex;
+
+    if(vkAllocateMemory(device, &allocInfo, nullptr, bufferMemory) != VK_SUCCESS){
+        fprintf(stderr, "failed to allocate buffer memory\n");
+        vkDestroyBuffer(device, *buffer, nullptr);
+        *buffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    if(vkBindBufferMemory(device, *buffer, *bufferMemory, 0) != VK_SUCCESS){
+        fprintf(stderr, "failed to bind buffer memory\n");
+        vkFreeMemory(device, *bufferMemory, nullptr);
+        vkDestroyBuffer(device, *buffer, nullptr);
+        *bufferMemory = VK_NULL_HANDLE;
+        *buffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    return true;
+}
+
+static bool createVertexBuffer(VulkanApp *app){
+    VkDeviceSize bufferSize = sizeof(vertices);
+
+    if(!createBuffer(
+        app->physicalDevice,
+        app->device,
+        bufferSize,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &app->vertexBuffer,
+        &app->vertexBufferMemory
+    )){
+        return false;
+    }
+
+    void *data = nullptr;
+    if(vkMapMemory(app->device, app->vertexBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
+        fprintf(stderr, "failed to map vertex buffer memory\n");
+
+        vkDestroyBuffer(app->device, app->vertexBuffer, nullptr);
+        vkFreeMemory(app->device, app->vertexBufferMemory, nullptr);
+        app->vertexBuffer = VK_NULL_HANDLE;
+        app->vertexBufferMemory = VK_NULL_HANDLE;
+
+        return false;
+    }
+
+    memcpy(data, vertices, (size_t)bufferSize);
+    vkUnmapMemory(app->device, app->vertexBufferMemory);
+
+    return true;
+}
 static bool drawFrameRaw(VkDevice device, VkSwapchainKHR swapchain, VkQueue graphicsQueue, VkQueue presentQueue, const std::vector<VkCommandBuffer> &commandBuffers, VkSemaphore imageAvailableSemaphore, VkSemaphore renderFinishedSemaphore, VkFence inFlightFence){
     VkResult result = vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
@@ -107,7 +230,7 @@ static bool createSyncObjects(VkDevice device, VkSemaphore *imageAvailableSemaph
     return true;
 }
 
-static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkRenderPass renderPass, const std::vector<VkFramebuffer> &swapchainFramebuffers, VkExtent2D swapchainExtent, VkPipeline graphicsPipeline, std::vector<VkCommandBuffer> *commandBuffers){
+static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkRenderPass renderPass, const std::vector<VkFramebuffer> &swapchainFramebuffers, VkExtent2D swapchainExtent, VkPipeline graphicsPipeline, VkBuffer vertexBuffer, std::vector<VkCommandBuffer> *commandBuffers){
     commandBuffers->resize(swapchainFramebuffers.size());
 
     VkCommandBufferAllocateInfo allocInfo = {};
@@ -166,6 +289,17 @@ static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkR
             (*commandBuffers)[i],
             VK_PIPELINE_BIND_POINT_GRAPHICS,
             graphicsPipeline
+        );
+
+        VkBuffer vertexBuffers[] = {vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+
+        vkCmdBindVertexBuffers(
+            (*commandBuffers)[i],
+            0,
+            1,
+            vertexBuffers,
+            offsets
         );
 
         vkCmdDraw((*commandBuffers)[i], 3, 1, 0, 0);
@@ -227,10 +361,23 @@ static bool createGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.vertexAttributeDescriptionCount = 1;
+    
+    VkVertexInputBindingDescription bindingDescription = {};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    
+    VkVertexInputAttributeDescription attributeDescription = {};
+    attributeDescription.binding = 0;
+    attributeDescription.location = 0;
+    attributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescription.offset = offsetof(Vertex, pos);
+
+    vertexInputInfo.pVertexAttributeDescriptions = &attributeDescription;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1215,6 +1362,13 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
 
     std::fprintf(stdout, "Command pool created\n");
 
+
+    if(!createVertexBuffer(app)){
+        return false;
+    }
+
+    std::fprintf(stdout, "Vertex buffer created\n");
+
     if(!createCommandBuffers(
         app->device,
         app->commandPool,
@@ -1222,6 +1376,7 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
         app->swapchainFramebuffers,
         app->swapchainExtent,
         app->graphicsPipeline,
+        app->vertexBuffer,
         &app->commandBuffers
     )){
         return false;
@@ -1281,6 +1436,17 @@ void cleanupVulkan(VulkanApp *app){
         app->commandPool = VK_NULL_HANDLE;
         app->commandBuffers.clear();
         std::fprintf(stdout, "Command pool destroyed\n");
+    }
+
+
+    if(app->vertexBuffer != VK_NULL_HANDLE){
+        vkDestroyBuffer(app->device, app->vertexBuffer, nullptr);
+        app->vertexBuffer = VK_NULL_HANDLE;
+    }
+
+    if(app->vertexBufferMemory != VK_NULL_HANDLE){
+        vkFreeMemory(app->device, app->vertexBufferMemory, nullptr);
+        app->vertexBufferMemory = VK_NULL_HANDLE;
     }
 
     if(app->graphicsPipeline != VK_NULL_HANDLE){
