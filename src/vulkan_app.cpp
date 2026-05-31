@@ -19,12 +19,13 @@ static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
 struct Vertex {
     float pos[2];
+    float color[3];
 };
 
 static const Vertex vertices[] = {
-    {{ 0.0f, -0.5f}},
-    {{ 0.5f,  0.5f}},
-    {{-0.5f,  0.5f}},
+    {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
 };
 
 static bool findMemoryType(
@@ -371,13 +372,20 @@ static bool createGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, 
 
     vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
     
-    VkVertexInputAttributeDescription attributeDescription = {};
-    attributeDescription.binding = 0;
-    attributeDescription.location = 0;
-    attributeDescription.format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescription.offset = offsetof(Vertex, pos);
+    VkVertexInputAttributeDescription attributeDescriptions[2] = {};
 
-    vertexInputInfo.pVertexAttributeDescriptions = &attributeDescription;
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(Vertex, pos);
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+    vertexInputInfo.vertexAttributeDescriptionCount = 2;
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
