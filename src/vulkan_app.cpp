@@ -24,13 +24,15 @@ struct Vertex {
 };
 
 static const Vertex vertices[] = {
-    {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}},
 };
 
 static const uint16_t indices[] = {
-    0, 1, 2
+    0, 1, 2,
+    2, 3, 0,
 };
 
 static bool findMemoryType(
