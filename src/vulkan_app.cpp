@@ -1,5 +1,6 @@
 #include "vulkan_app.h"
 
+#include <cstdint>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -26,6 +27,10 @@ static const Vertex vertices[] = {
     {{ 0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
     {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
     {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},
+};
+
+static const uint16_t indices[] = {
+    0, 1, 2
 };
 
 static bool findMemoryType(
@@ -140,6 +145,40 @@ static bool createVertexBuffer(VulkanApp *app){
 
     return true;
 }
+
+static bool createIndexBuffer(VulkanApp *app){
+    VkDeviceSize bufferSize = sizeof(indices);
+
+    if(!createBuffer(
+        app->physicalDevice,
+        app->device,
+        bufferSize,
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &app->indexBuffer,
+        &app->indexBufferMemory
+    )){
+        return false;
+    }
+
+    void *data = nullptr;
+    if(vkMapMemory(app->device, app->indexBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
+        fprintf(stderr, "failed to map vertex buffer memory\n");
+
+        vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
+        vkFreeMemory(app->device, app->vertexBufferMemory, nullptr);
+        app->indexBuffer = VK_NULL_HANDLE;
+        app->indexBufferMemory = VK_NULL_HANDLE;
+
+        return false;
+    }
+
+    memcpy(data, indices, (size_t)bufferSize);
+    vkUnmapMemory(app->device, app->indexBufferMemory);
+
+    return true;
+}
+
 static bool drawFrameRaw(VkDevice device, VkSwapchainKHR swapchain, VkQueue graphicsQueue, VkQueue presentQueue, const std::vector<VkCommandBuffer> &commandBuffers, VkSemaphore imageAvailableSemaphore, VkSemaphore renderFinishedSemaphore, VkFence inFlightFence){
     VkResult result = vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
@@ -204,7 +243,6 @@ static bool drawFrameRaw(VkDevice device, VkSwapchainKHR swapchain, VkQueue grap
     return true;
 }
 
-
 static bool createSyncObjects(VkDevice device, VkSemaphore *imageAvailableSemaphore, VkSemaphore *renderFinishedSemaphore, VkFence *inFlightFence){
     VkSemaphoreCreateInfo semaphoreInfo = {};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -231,7 +269,7 @@ static bool createSyncObjects(VkDevice device, VkSemaphore *imageAvailableSemaph
     return true;
 }
 
-static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkRenderPass renderPass, const std::vector<VkFramebuffer> &swapchainFramebuffers, VkExtent2D swapchainExtent, VkPipeline graphicsPipeline, VkBuffer vertexBuffer, std::vector<VkCommandBuffer> *commandBuffers){
+static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkRenderPass renderPass, const std::vector<VkFramebuffer> &swapchainFramebuffers, VkExtent2D swapchainExtent, VkPipeline graphicsPipeline, VkBuffer vertexBuffer, VkBuffer indexBuffer, std::vector<VkCommandBuffer> *commandBuffers){
     commandBuffers->resize(swapchainFramebuffers.size());
 
     VkCommandBufferAllocateInfo allocInfo = {};
@@ -303,7 +341,21 @@ static bool createCommandBuffers(VkDevice device, VkCommandPool commandPool, VkR
             offsets
         );
 
-        vkCmdDraw((*commandBuffers)[i], 3, 1, 0, 0);
+        vkCmdBindIndexBuffer(
+            (*commandBuffers)[i],
+            indexBuffer,
+            0,
+            VK_INDEX_TYPE_UINT16
+        );
+
+        vkCmdDrawIndexed(
+            (*commandBuffers)[i],
+            static_cast<uint32_t>(sizeof(indices) / sizeof(indices[0])),
+            1,
+            0,
+            0,
+            0
+        );
 
         vkCmdEndRenderPass((*commandBuffers)[i]);
 
@@ -1377,6 +1429,12 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
 
     std::fprintf(stdout, "Vertex buffer created\n");
 
+        if(!createIndexBuffer(app)){
+        return false;
+    }
+
+    std::fprintf(stdout, "Index buffer created\n");
+
     if(!createCommandBuffers(
         app->device,
         app->commandPool,
@@ -1385,6 +1443,7 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
         app->swapchainExtent,
         app->graphicsPipeline,
         app->vertexBuffer,
+        app->indexBuffer,
         &app->commandBuffers
     )){
         return false;
@@ -1446,6 +1505,15 @@ void cleanupVulkan(VulkanApp *app){
         std::fprintf(stdout, "Command pool destroyed\n");
     }
 
+    if(app->indexBuffer != VK_NULL_HANDLE){
+    vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
+    app->indexBuffer = VK_NULL_HANDLE;
+}
+
+    if(app->indexBufferMemory != VK_NULL_HANDLE){
+        vkFreeMemory(app->device, app->indexBufferMemory, nullptr);
+        app->indexBufferMemory = VK_NULL_HANDLE;
+    }
 
     if(app->vertexBuffer != VK_NULL_HANDLE){
         vkDestroyBuffer(app->device, app->vertexBuffer, nullptr);
