@@ -115,35 +115,121 @@ static bool createBuffer(
     return true;
 }
 
+static bool copyBuffer(VulkanApp *app, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size){
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = app->commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+
+    if(vkAllocateCommandBuffers(app->device, &allocInfo, &commandBuffer) != VK_SUCCESS){
+        fprintf(stderr, "failed to allocate copy command buffer\n");
+        return false;
+    }
+
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    if(vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS){
+        fprintf(stderr, "failed to begin copy command buffer\n");
+        vkFreeCommandBuffers(app->device, app->commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    VkBufferCopy copyRegion = {};
+    copyRegion.srcOffset = 0;
+    copyRegion.dstOffset = 0;
+    copyRegion.size = size;
+
+    vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+    if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS){
+        fprintf(stderr, "failed to record copy command buffer\n");
+        vkFreeCommandBuffers(app->device, app->commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    if(vkQueueSubmit(app->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS){
+        fprintf(stderr, "failed to submit copy command buffer\n");
+        vkFreeCommandBuffers(app->device, app->commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    vkQueueWaitIdle(app->graphicsQueue);
+
+    vkFreeCommandBuffers(app->device, app->commandPool, 1, &commandBuffer);
+
+    return true;
+}
+
 static bool createVertexBuffer(VulkanApp *app){
     VkDeviceSize bufferSize = sizeof(vertices);
+
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingBufferMemory = VK_NULL_HANDLE;
 
     if(!createBuffer(
         app->physicalDevice,
         app->device,
         bufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        &app->vertexBuffer,
-        &app->vertexBufferMemory
+        &stagingBuffer,
+        &stagingBufferMemory
     )){
         return false;
     }
 
     void *data = nullptr;
-    if(vkMapMemory(app->device, app->vertexBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
-        fprintf(stderr, "failed to map vertex buffer memory\n");
+    if(vkMapMemory(app->device, stagingBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
+        fprintf(stderr, "failed to map staging buffer memory\n");
 
-        vkDestroyBuffer(app->device, app->vertexBuffer, nullptr);
-        vkFreeMemory(app->device, app->vertexBufferMemory, nullptr);
-        app->vertexBuffer = VK_NULL_HANDLE;
-        app->vertexBufferMemory = VK_NULL_HANDLE;
+        vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+        vkFreeMemory(app->device, stagingBufferMemory, nullptr);
 
         return false;
     }
 
     memcpy(data, vertices, (size_t)bufferSize);
-    vkUnmapMemory(app->device, app->vertexBufferMemory);
+    vkUnmapMemory(app->device, stagingBufferMemory);
+
+    if(!createBuffer(
+        app->physicalDevice,
+        app->device,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &app->vertexBuffer,
+        &app->vertexBufferMemory
+    )){
+        vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+        vkFreeMemory(app->device, stagingBufferMemory, nullptr);
+
+        return false;
+    }
+
+    if(!copyBuffer(app, stagingBuffer, app->vertexBuffer, bufferSize)){
+        vkDestroyBuffer(app->device, app->vertexBuffer, nullptr);
+        vkFreeMemory(app->device, app->vertexBufferMemory, nullptr);
+        app->vertexBuffer = VK_NULL_HANDLE;
+        app->vertexBufferMemory = VK_NULL_HANDLE;
+
+        vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+        vkFreeMemory(app->device, stagingBufferMemory, nullptr);
+
+        return false;
+    }
+
+    vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+    vkFreeMemory(app->device, stagingBufferMemory, nullptr);
 
     return true;
 }
@@ -168,7 +254,7 @@ static bool createIndexBuffer(VulkanApp *app){
         fprintf(stderr, "failed to map vertex buffer memory\n");
 
         vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
-        vkFreeMemory(app->device, app->vertexBufferMemory, nullptr);
+        vkFreeMemory(app->device, app->indexBufferMemory, nullptr);
         app->indexBuffer = VK_NULL_HANDLE;
         app->indexBufferMemory = VK_NULL_HANDLE;
 
