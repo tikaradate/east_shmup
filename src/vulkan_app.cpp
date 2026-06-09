@@ -18,6 +18,10 @@ static const bool enableValidationLayers = true;
 
 static const char *validationLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
+struct UniformBufferObject {
+    alignas(16) float transform[16];
+};
+
 struct Vertex {
     float pos[2];
     float color[3];
@@ -111,6 +115,45 @@ static bool createBuffer(
         *buffer = VK_NULL_HANDLE;
         return false;
     }
+
+    return true;
+}
+
+static bool createUniformBuffer(VulkanApp *app){
+    VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+    if(!createBuffer(
+        app->physicalDevice,
+        app->device,
+        bufferSize,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        &app->uniformBuffer,
+        &app->uniformBufferMemory
+    )){
+        return false;
+    }
+
+    UniformBufferObject ubo = {};
+    ubo.transform[0]  = 1.0f;
+    ubo.transform[5]  = 1.0f;
+    ubo.transform[10] = 1.0f;
+    ubo.transform[15] = 1.0f;
+
+    void *data = nullptr;
+    if(vkMapMemory(app->device, app->uniformBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
+        fprintf(stderr, "failed to map uniform buffer memory\n");
+
+        vkDestroyBuffer(app->device, app->uniformBuffer, nullptr);
+        vkFreeMemory(app->device, app->uniformBufferMemory, nullptr);
+        app->uniformBuffer = VK_NULL_HANDLE;
+        app->uniformBufferMemory = VK_NULL_HANDLE;
+
+        return false;
+    }
+
+    memcpy(data, &ubo, (size_t)bufferSize);
+    vkUnmapMemory(app->device, app->uniformBufferMemory);
 
     return true;
 }
@@ -1595,6 +1638,10 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
         return false;
     }
 
+    if(!createUniformBuffer(app)){
+        return false;
+    }
+
     std::fprintf(stdout, "Command buffers created\n");
 
     if(!createSyncObjects(
@@ -1625,6 +1672,14 @@ bool drawFrame(VulkanApp *app){
 }
 
 void cleanupVulkan(VulkanApp *app){
+    if(app->uniformBuffer != VK_NULL_HANDLE){
+        vkDestroyBuffer(app->device, app->uniformBuffer, nullptr);
+    }
+    
+    if(app->uniformBufferMemory != VK_NULL_HANDLE){
+        vkFreeMemory(app->device, app->uniformBufferMemory, nullptr);
+    }
+        
     if(app->device != VK_NULL_HANDLE){
         vkDeviceWaitIdle(app->device);
     }
