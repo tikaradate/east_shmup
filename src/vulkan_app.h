@@ -68,6 +68,9 @@ struct VulkanApp{
 
     VkBuffer uniformBuffer = VK_NULL_HANDLE;
     VkDeviceMemory uniformBufferMemory = VK_NULL_HANDLE;
+
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE  ;
 };
 
 bool initVulkan(VulkanApp *app, GLFWwindow *window);

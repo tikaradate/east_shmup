@@ -555,6 +555,56 @@ static bool createCommandPool(VkDevice device, QueueFamilyIndices queueFamilyInd
     return true;
 }
 
+static bool createDescriptorPool(VulkanApp *app){
+    VkDescriptorPoolSize poolSize = {};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+
+    if(vkCreateDescriptorPool(app->device, &poolInfo, nullptr, &app->descriptorPool) != VK_SUCCESS){
+        fprintf(stderr, "failed to create descriptor pool\n");
+        return false;
+    }
+
+    return true;
+}
+
+static bool createDescriptorSet(VulkanApp *app){
+    VkDescriptorSetAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = app->descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &app->descriptorSetLayout;
+
+    if(vkAllocateDescriptorSets(app->device, &allocInfo, &app->descriptorSet) != VK_SUCCESS){
+        fprintf(stderr, "failed to allocate descriptor set\n");
+        return false;
+    }
+
+    VkDescriptorBufferInfo bufferInfo = {};
+    bufferInfo.buffer = app->uniformBuffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(UniformBufferObject);
+
+    VkWriteDescriptorSet descriptorWrite = {};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = app->descriptorSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &bufferInfo;
+
+    vkUpdateDescriptorSets(app->device, 1, &descriptorWrite, 0, nullptr);
+
+    return true;
+}
+
 static bool createDescriptorSetLayout(VulkanApp *app){
     VkDescriptorSetLayoutBinding uboLayoutBinding = {};
     uboLayoutBinding.binding = 0;
@@ -1624,6 +1674,24 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
 
     std::fprintf(stdout, "Index buffer created\n");
 
+    if(!createUniformBuffer(app)){
+        return false;
+    }
+
+    std::fprintf(stdout, "Uniform buffer created\n");
+
+    if(!createDescriptorPool(app)){
+        return false;
+    }
+
+    std::fprintf(stdout, "Descriptor pool created\n");
+
+    if(!createDescriptorSet(app)){
+        return false;
+    }
+
+    std::fprintf(stdout, "Descriptor set created\n");
+
     if(!createCommandBuffers(
         app->device,
         app->commandPool,
@@ -1635,10 +1703,6 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
         app->indexBuffer,
         &app->commandBuffers
     )){
-        return false;
-    }
-
-    if(!createUniformBuffer(app)){
         return false;
     }
 
@@ -1671,7 +1735,11 @@ bool drawFrame(VulkanApp *app){
     );
 }
 
-void cleanupVulkan(VulkanApp *app){
+void cleanupVulkan(VulkanApp *app){        
+    if(app->device != VK_NULL_HANDLE){
+        vkDeviceWaitIdle(app->device);
+    }
+
     if(app->uniformBuffer != VK_NULL_HANDLE){
         vkDestroyBuffer(app->device, app->uniformBuffer, nullptr);
     }
@@ -1679,10 +1747,7 @@ void cleanupVulkan(VulkanApp *app){
     if(app->uniformBufferMemory != VK_NULL_HANDLE){
         vkFreeMemory(app->device, app->uniformBufferMemory, nullptr);
     }
-        
-    if(app->device != VK_NULL_HANDLE){
-        vkDeviceWaitIdle(app->device);
-    }
+
 
     if(app->inFlightFence != VK_NULL_HANDLE){
         vkDestroyFence(app->device, app->inFlightFence, nullptr);
@@ -1707,9 +1772,9 @@ void cleanupVulkan(VulkanApp *app){
     }
 
     if(app->indexBuffer != VK_NULL_HANDLE){
-    vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
-    app->indexBuffer = VK_NULL_HANDLE;
-}
+        vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
+        app->indexBuffer = VK_NULL_HANDLE;
+    }
 
     if(app->indexBufferMemory != VK_NULL_HANDLE){
         vkFreeMemory(app->device, app->indexBufferMemory, nullptr);
@@ -1730,6 +1795,11 @@ void cleanupVulkan(VulkanApp *app){
         vkDestroyPipeline(app->device, app->graphicsPipeline, nullptr);
         app->graphicsPipeline = VK_NULL_HANDLE;
         std::fprintf(stdout, "Graphics pipeline destroyed\n");
+    }
+
+    if(app->descriptorPool != VK_NULL_HANDLE){
+        vkDestroyDescriptorPool(app->device, app->descriptorPool, nullptr);
+        app->descriptorPool = VK_NULL_HANDLE;
     }
 
     if(app->descriptorSetLayout != VK_NULL_HANDLE){
