@@ -237,32 +237,63 @@ static bool createVertexBuffer(VulkanApp *app){
 static bool createIndexBuffer(VulkanApp *app){
     VkDeviceSize bufferSize = sizeof(indices);
 
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingBufferMemory = VK_NULL_HANDLE;
+
     if(!createBuffer(
         app->physicalDevice,
         app->device,
         bufferSize,
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        &app->indexBuffer,
-        &app->indexBufferMemory
+        &stagingBuffer,
+        &stagingBufferMemory
     )){
         return false;
     }
 
     void *data = nullptr;
-    if(vkMapMemory(app->device, app->indexBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
-        fprintf(stderr, "failed to map vertex buffer memory\n");
+    if(vkMapMemory(app->device, stagingBufferMemory, 0, bufferSize, 0, &data) != VK_SUCCESS){
+        fprintf(stderr, "failed to map index staging buffer memory\n");
 
-        vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
-        vkFreeMemory(app->device, app->indexBufferMemory, nullptr);
-        app->indexBuffer = VK_NULL_HANDLE;
-        app->indexBufferMemory = VK_NULL_HANDLE;
+        vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+        vkFreeMemory(app->device, stagingBufferMemory, nullptr);
 
         return false;
     }
 
     memcpy(data, indices, (size_t)bufferSize);
-    vkUnmapMemory(app->device, app->indexBufferMemory);
+    vkUnmapMemory(app->device, stagingBufferMemory);
+
+    if(!createBuffer(
+        app->physicalDevice,
+        app->device,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &app->indexBuffer,
+        &app->indexBufferMemory
+    )){
+        vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+        vkFreeMemory(app->device, stagingBufferMemory, nullptr);
+
+        return false;
+    }
+
+    if(!copyBuffer(app, stagingBuffer, app->indexBuffer, bufferSize)){
+        vkDestroyBuffer(app->device, app->indexBuffer, nullptr);
+        vkFreeMemory(app->device, app->indexBufferMemory, nullptr);
+        app->indexBuffer = VK_NULL_HANDLE;
+        app->indexBufferMemory = VK_NULL_HANDLE;
+
+        vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+        vkFreeMemory(app->device, stagingBufferMemory, nullptr);
+
+        return false;
+    }
+
+    vkDestroyBuffer(app->device, stagingBuffer, nullptr);
+    vkFreeMemory(app->device, stagingBufferMemory, nullptr);
 
     return true;
 }
