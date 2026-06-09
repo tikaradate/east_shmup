@@ -512,7 +512,28 @@ static bool createCommandPool(VkDevice device, QueueFamilyIndices queueFamilyInd
     return true;
 }
 
-static bool createGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, VkRenderPass renderPass, VkShaderModule vertShaderModule, VkShaderModule fragShaderModule, VkPipelineLayout *pipelineLayout, VkPipeline *graphicsPipeline){
+static bool createDescriptorSetLayout(VulkanApp *app){
+    VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    uboLayoutBinding.pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &uboLayoutBinding;
+
+    if(vkCreateDescriptorSetLayout(app->device, &layoutInfo, nullptr, &app->descriptorSetLayout) != VK_SUCCESS){
+        fprintf(stderr, "failed to create descriptor set layout\n");
+        return false;
+    }
+
+    return true;
+}
+
+static bool createGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, VkRenderPass renderPass, VkShaderModule vertShaderModule, VkShaderModule fragShaderModule, VkPipelineLayout *pipelineLayout, VkPipeline *graphicsPipeline, VkDescriptorSetLayout *descriptorSetLayout){
     VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -631,9 +652,8 @@ static bool createGraphicsPipeline(VkDevice device, VkExtent2D swapchainExtent, 
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-
-    pipelineLayoutInfo.setLayoutCount = 0;
-    pipelineLayoutInfo.pSetLayouts = nullptr;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = descriptorSetLayout;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -1510,6 +1530,12 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
 
     std::fprintf(stdout, "Shader modules created\n");
 
+    if(!createDescriptorSetLayout(app)){
+       return false;
+    }
+
+    std::fprintf(stdout, "Descriptor set layout created\n");
+
     if(!createGraphicsPipeline(
         app->device,
         app->swapchainExtent,
@@ -1517,7 +1543,8 @@ bool initVulkan(VulkanApp *app, GLFWwindow *window){
         vertShaderModule,
         fragShaderModule,
         &app->pipelineLayout,
-        &app->graphicsPipeline
+        &app->graphicsPipeline,
+        &app->descriptorSetLayout
     )){
         vkDestroyShaderModule(app->device, fragShaderModule, nullptr);
         vkDestroyShaderModule(app->device, vertShaderModule, nullptr);
@@ -1648,6 +1675,11 @@ void cleanupVulkan(VulkanApp *app){
         vkDestroyPipeline(app->device, app->graphicsPipeline, nullptr);
         app->graphicsPipeline = VK_NULL_HANDLE;
         std::fprintf(stdout, "Graphics pipeline destroyed\n");
+    }
+
+    if(app->descriptorSetLayout != VK_NULL_HANDLE){
+        vkDestroyDescriptorSetLayout(app->device, app->descriptorSetLayout, nullptr);
+        app->descriptorSetLayout = VK_NULL_HANDLE;
     }
 
     if(app->pipelineLayout != VK_NULL_HANDLE){
